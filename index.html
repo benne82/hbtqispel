@@ -1,0 +1,941 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>HBTQI Platformer Shooter</title>
+
+<style>
+
+*{
+  margin:0;
+  padding:0;
+  box-sizing:border-box;
+}
+
+body{
+  overflow:hidden;
+  background:#5ecbff;
+  font-family:monospace;
+}
+
+canvas{
+  display:block;
+  image-rendering:pixelated;
+}
+
+.ui{
+  position:fixed;
+  top:10px;
+  left:10px;
+  z-index:10;
+  background:white;
+  border:4px solid black;
+  padding:12px;
+  font-size:22px;
+}
+
+.healthBar{
+  width:220px;
+  height:28px;
+  background:#444;
+  border:4px solid black;
+  margin-top:10px;
+}
+
+.health{
+  height:100%;
+  width:100%;
+  background:#39d353;
+}
+
+.controls{
+  position:fixed;
+  bottom:10px;
+  left:10px;
+  background:white;
+  border:4px solid black;
+  padding:10px;
+  font-size:18px;
+}
+
+.questionBox{
+  position:fixed;
+  top:50%;
+  left:50%;
+  transform:translate(-50%,-50%);
+  width:90%;
+  max-width:900px;
+  background:#fff2cc;
+  border:6px solid black;
+  padding:25px;
+  display:none;
+  z-index:100;
+}
+
+.questionTitle{
+  font-size:32px;
+  margin-bottom:20px;
+  text-align:center;
+}
+
+.answers{
+  display:grid;
+  gap:14px;
+}
+
+.answer{
+  padding:14px;
+  border:4px solid black;
+  background:#ffd54a;
+  font-size:18px;
+  cursor:pointer;
+}
+
+.answer:hover{
+  background:#ffe27f;
+}
+
+.correct{
+  background:#66dd66 !important;
+}
+
+.wrong{
+  background:#ff6666 !important;
+}
+
+.gameOver{
+  position:fixed;
+  inset:0;
+  background:rgba(0,0,0,0.9);
+  color:white;
+  display:none;
+  justify-content:center;
+  align-items:center;
+  flex-direction:column;
+  z-index:200;
+}
+
+.restart{
+  margin-top:20px;
+  padding:20px 40px;
+  font-size:28px;
+  border:none;
+  border:5px solid black;
+  background:gold;
+  cursor:pointer;
+}
+
+</style>
+</head>
+<body>
+
+<div class="ui">
+
+⭐ Poäng:
+<span id="score">0</span>
+
+<br>
+
+❤️ HP:
+<span id="hpText">100</span>
+
+<br>
+
+🚀 Level:
+<span id="level">1</span>
+
+<br>
+
+🔫 Cooldown:
+<span id="cooldown">READY</span>
+
+<div class="healthBar">
+  <div class="health" id="health"></div>
+</div>
+
+</div>
+
+<div class="controls">
+
+A/D eller ← → = Gå
+<br>
+
+W / ↑ / SPACE = Hoppa
+<br>
+
+F = Skjut
+
+</div>
+
+<div class="questionBox" id="questionBox">
+
+<div class="questionTitle" id="questionTitle"></div>
+
+<div class="answers" id="answers"></div>
+
+</div>
+
+<div class="gameOver" id="gameOver">
+
+<h1>💀 GAME OVER</h1>
+
+<h2 id="finalScore"></h2>
+
+<button class="restart"
+onclick="location.reload()">
+SPELA IGEN
+</button>
+
+</div>
+
+<canvas id="game"></canvas>
+
+<script>
+
+const questions = [
+
+["Heterosexuell","Attraherad av ett annat kön."],
+["Homosexuell","Attraherad av samma kön."],
+["Bisexuell","Attraherad av mer än ett kön."],
+["Pansexuell","Attraherad oavsett kön."],
+["Asexuell","Känner liten eller ingen sexuell attraktion."],
+["Queer","Bryter mot normer kring kön eller sexualitet."],
+["Cisperson","Könsidentiteten stämmer med kön vid födseln."],
+["Transperson","Könsidentiteten stämmer inte med kön vid födseln."],
+["Ickebinär","Identifierar sig inte bara som man eller kvinna."],
+["Könsuttryck","Hur någon visar sitt kön genom stil eller kläder."],
+["Polyamorös","Kan ha flera kärleksrelationer samtidigt."],
+["Genderfluid","Könsidentiteten kan förändras över tid."],
+["Lesbisk","Kvinna eller ickebinär som gillar kvinnor."],
+["Monogam","En relation med en person i taget."],
+["Intersex","Föds med könsvariationer."],
+["Könsdysfori","Obehag kopplat till könsidentitet eller kropp."],
+["Könsbekräftande vård","Vård som hjälper någon leva enligt sin könsidentitet."],
+["Transvestit","Använder ibland kläder kopplade till annat kön."],
+["HBTQI","Förkortning för homosexuella, bisexuella, transpersoner, queerpersoner och intersexpersoner."]
+
+];
+
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+function resize(){
+  canvas.width = innerWidth;
+  canvas.height = innerHeight;
+}
+
+resize();
+
+addEventListener("resize",resize);
+
+const groundY = () => canvas.height - 120;
+
+const player = {
+
+  x:100,
+  y:200,
+  w:40,
+  h:60,
+  dx:0,
+  dy:0,
+  speed:5,
+  jump:15,
+  grounded:false,
+  facing:1
+
+};
+
+let cameraX = 0;
+
+let score = 0;
+let level = 1;
+let hp = 100;
+
+const bullets = [];
+const monsters = [];
+const blocks = [];
+const keys = {};
+
+let lastShot = 0;
+let questionOpen = false;
+
+function createBlock(x){
+
+  const q =
+    questions[
+      Math.floor(Math.random()*questions.length)
+    ];
+
+  blocks.push({
+
+    x,
+    y:groundY() - 220 - Math.random()*150,
+    w:70,
+    h:70,
+    used:false,
+    word:q[0],
+    correct:q[1]
+
+  });
+
+}
+
+for(let i=0;i<20;i++){
+
+  createBlock(500 + i*350);
+
+}
+
+function spawnMonster(){
+
+  monsters.push({
+
+    x:player.x + innerWidth + Math.random()*400,
+    y:groundY() - 60,
+    w:50,
+    h:60,
+    speed:1.5 + Math.random()*1.5,
+    hp:2
+
+  });
+
+}
+
+setInterval(spawnMonster,5000);
+
+addEventListener("keydown",e=>{
+
+  keys[e.code] = true;
+
+});
+
+addEventListener("keyup",e=>{
+
+  keys[e.code] = false;
+
+});
+
+function shoot(){
+
+  const now = Date.now();
+
+  if(now - lastShot < 1000)
+    return;
+
+  lastShot = now;
+
+  bullets.push({
+
+    x:player.x + player.w/2,
+    y:player.y + 20,
+    dx:player.facing * 12,
+    w:16,
+    h:6
+
+  });
+
+}
+
+function updateUI(){
+
+  document.getElementById("score")
+  .innerText = score;
+
+  document.getElementById("level")
+  .innerText = level;
+
+  document.getElementById("hpText")
+  .innerText = hp;
+
+  document.getElementById("health")
+  .style.width = hp + "%";
+
+  const cd =
+    Math.max(
+      0,
+      1 - ((Date.now()-lastShot)/1000)
+    );
+
+  document.getElementById("cooldown")
+  .innerText =
+    cd <= 0
+    ? "READY"
+    : cd.toFixed(1) + "s";
+
+}
+
+function gameOver(){
+
+  document.getElementById("gameOver")
+  .style.display = "flex";
+
+  document.getElementById("finalScore")
+  .innerText =
+    "Poäng: " + score;
+
+}
+
+function generateOptions(correct){
+
+  const options = [correct];
+
+  while(options.length < 4){
+
+    const random =
+      questions[
+        Math.floor(Math.random()*questions.length)
+      ][1];
+
+    if(!options.includes(random)){
+
+      options.push(random);
+
+    }
+
+  }
+
+  return options.sort(()=>Math.random()-0.5);
+
+}
+
+function openQuestion(block){
+
+  if(block.used)
+    return;
+
+  block.used = true;
+
+  questionOpen = true;
+
+  const box =
+    document.getElementById("questionBox");
+
+  box.style.display = "block";
+
+  document.getElementById("questionTitle")
+  .innerHTML =
+    `Vad betyder <b>${block.word}</b>?`;
+
+  const answers =
+    document.getElementById("answers");
+
+  answers.innerHTML = "";
+
+  generateOptions(block.correct)
+  .forEach(option=>{
+
+    const btn =
+      document.createElement("button");
+
+    btn.className = "answer";
+
+    btn.innerText = option;
+
+    btn.onclick = ()=>{
+
+      if(option === block.correct){
+
+        btn.classList.add("correct");
+
+        score += 100;
+
+        hp += 50;
+
+      } else {
+
+        btn.classList.add("wrong");
+
+        hp -= 50;
+
+      }
+
+      if(hp > 100)
+        hp = 100;
+
+      if(hp <= 0){
+
+        hp = 0;
+
+        gameOver();
+
+      }
+
+      updateUI();
+
+      setTimeout(()=>{
+
+        box.style.display = "none";
+
+        questionOpen = false;
+
+      },900);
+
+    };
+
+    answers.appendChild(btn);
+
+  });
+
+}
+
+function update(){
+
+  if(hp <= 0)
+    return;
+
+  player.dx = 0;
+
+  if(!questionOpen){
+
+    if(keys["ArrowLeft"] || keys["KeyA"]){
+
+      player.dx = -player.speed;
+
+      player.facing = -1;
+
+    }
+
+    if(keys["ArrowRight"] || keys["KeyD"]){
+
+      player.dx = player.speed;
+
+      player.facing = 1;
+
+    }
+
+    if(
+      (
+        keys["ArrowUp"] ||
+        keys["KeyW"] ||
+        keys["Space"]
+      ) &&
+      player.grounded
+    ){
+
+      player.dy = -player.jump;
+
+      player.grounded = false;
+
+    }
+
+    if(keys["KeyF"]){
+
+      shoot();
+
+    }
+
+  }
+
+  player.dy += 0.7;
+
+  player.x += player.dx;
+  player.y += player.dy;
+
+  if(player.y + player.h >= groundY()){
+
+    player.y = groundY() - player.h;
+
+    player.dy = 0;
+
+    player.grounded = true;
+
+  }
+
+  cameraX = player.x - 200;
+
+  for(let bullet of bullets){
+
+    bullet.x += bullet.dx;
+
+  }
+
+  for(let monster of monsters){
+
+    if(monster.x > player.x){
+
+      monster.x -= monster.speed;
+
+    } else {
+
+      monster.x += monster.speed;
+
+    }
+
+    if(
+
+      player.x < monster.x + monster.w &&
+      player.x + player.w > monster.x &&
+      player.y < monster.y + monster.h &&
+      player.y + player.h > monster.y
+
+    ){
+
+      hp -= 50;
+
+      monster.remove = true;
+
+      if(hp <= 0){
+
+        hp = 0;
+
+        gameOver();
+
+      }
+
+    }
+
+  }
+
+  for(let bullet of bullets){
+
+    for(let monster of monsters){
+
+      if(
+
+        bullet.x < monster.x + monster.w &&
+        bullet.x + bullet.w > monster.x &&
+        bullet.y < monster.y + monster.h &&
+        bullet.y + bullet.h > monster.y
+
+      ){
+
+        monster.hp--;
+
+        bullet.remove = true;
+
+        if(monster.hp <= 0){
+
+          monster.remove = true;
+
+          score += 50;
+
+        }
+
+      }
+
+    }
+
+  }
+
+  bullets.forEach((b,i)=>{
+
+    if(b.remove)
+      bullets.splice(i,1);
+
+  });
+
+  monsters.forEach((m,i)=>{
+
+    if(m.remove)
+      monsters.splice(i,1);
+
+  });
+
+  for(let block of blocks){
+
+    if(
+
+      player.x + player.w > block.x &&
+      player.x < block.x + block.w &&
+      player.y < block.y + block.h &&
+      player.y + player.h > block.y
+
+    ){
+
+      if(player.dy < 0){
+
+        player.dy = 4;
+
+        openQuestion(block);
+
+      }
+
+    }
+
+  }
+
+  const lastBlock =
+    blocks[blocks.length-1];
+
+  if(player.x > lastBlock.x - 2000){
+
+    for(let i=0;i<10;i++){
+
+      createBlock(
+        lastBlock.x + 350 + i*350
+      );
+
+    }
+
+    level++;
+
+  }
+
+  updateUI();
+
+}
+
+function drawBackground(){
+
+  ctx.fillStyle = "#5ecbff";
+
+  ctx.fillRect(
+    0,
+    0,
+    canvas.width,
+    canvas.height
+  );
+
+  ctx.fillStyle = "yellow";
+
+  ctx.beginPath();
+
+  ctx.arc(120,100,50,0,Math.PI*2);
+
+  ctx.fill();
+
+  ctx.fillStyle = "white";
+
+  for(let i=0;i<8;i++){
+
+    let x =
+      ((i*350)-cameraX*0.3) %
+      (canvas.width+400);
+
+    ctx.fillRect(
+      x,
+      90 + (i%3)*70,
+      100,
+      40
+    );
+
+    ctx.fillRect(
+      x+20,
+      60 + (i%3)*70,
+      60,
+      40
+    );
+
+  }
+
+}
+
+function drawGround(){
+
+  ctx.fillStyle = "#8B5A2B";
+
+  ctx.fillRect(
+    0,
+    groundY(),
+    canvas.width,
+    200
+  );
+
+  ctx.fillStyle = "#34a853";
+
+  ctx.fillRect(
+    0,
+    groundY(),
+    canvas.width,
+    25
+  );
+
+}
+
+function drawBlocks(){
+
+  for(let block of blocks){
+
+    const x = block.x - cameraX;
+
+    ctx.fillStyle =
+      block.used ? "#888" : "#ffcc33";
+
+    ctx.fillRect(
+      x,
+      block.y,
+      block.w,
+      block.h
+    );
+
+    ctx.strokeStyle = "black";
+
+    ctx.lineWidth = 4;
+
+    ctx.strokeRect(
+      x,
+      block.y,
+      block.w,
+      block.h
+    );
+
+    if(!block.used){
+
+      ctx.fillStyle = "black";
+
+      ctx.font = "40px monospace";
+
+      ctx.fillText(
+        "?",
+        x + 20,
+        block.y + 48
+      );
+
+    }
+
+  }
+
+}
+
+function drawPlayer(){
+
+  const px = player.x - cameraX;
+
+  ctx.fillStyle = "red";
+
+  ctx.fillRect(
+    px,
+    player.y,
+    player.w,
+    30
+  );
+
+  ctx.fillStyle = "blue";
+
+  ctx.fillRect(
+    px,
+    player.y + 30,
+    player.w,
+    30
+  );
+
+  ctx.fillStyle = "#ffcc99";
+
+  ctx.fillRect(
+    px + 5,
+    player.y - 18,
+    30,
+    18
+  );
+
+  ctx.fillStyle = "#aa0000";
+
+  ctx.fillRect(
+    px,
+    player.y - 28,
+    40,
+    10
+  );
+
+  ctx.fillStyle = "black";
+
+  if(player.facing === 1){
+
+    ctx.fillRect(
+      px + 40,
+      player.y + 20,
+      20,
+      5
+    );
+
+  } else {
+
+    ctx.fillRect(
+      px - 20,
+      player.y + 20,
+      20,
+      5
+    );
+
+  }
+
+}
+
+function drawBullets(){
+
+  ctx.fillStyle = "yellow";
+
+  for(let bullet of bullets){
+
+    ctx.fillRect(
+      bullet.x - cameraX,
+      bullet.y,
+      bullet.w,
+      bullet.h
+    );
+
+  }
+
+}
+
+function drawMonsters(){
+
+  for(let monster of monsters){
+
+    const x = monster.x - cameraX;
+
+    ctx.fillStyle = "#7b2cff";
+
+    ctx.fillRect(
+      x,
+      monster.y,
+      monster.w,
+      monster.h
+    );
+
+    ctx.fillStyle = "white";
+
+    ctx.fillRect(
+      x + 8,
+      monster.y + 10,
+      10,
+      10
+    );
+
+    ctx.fillRect(
+      x + 32,
+      monster.y + 10,
+      10,
+      10
+    );
+
+  }
+
+}
+
+function draw(){
+
+  drawBackground();
+
+  drawGround();
+
+  drawBlocks();
+
+  drawBullets();
+
+  drawMonsters();
+
+  drawPlayer();
+
+}
+
+function loop(){
+
+  update();
+
+  draw();
+
+  requestAnimationFrame(loop);
+
+}
+
+updateUI();
+
+loop();
+
+</script>
+
+</body>
+</html>
